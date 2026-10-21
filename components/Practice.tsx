@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import MicButton from './MicButton';
 
 export type PracticeQuestion = {
   id: string; text: string; category: string;
@@ -26,6 +27,11 @@ const CHECK_STYLE: Record<string, string> = {
 };
 const CHECK_WORD: Record<string, string> = { met: '✓', partly: '½', missing: '✗' };
 const MIN = 40;
+
+// add spoken words to the end of existing text
+function appendText(prev: string, t: string) {
+  return (prev.trim() ? prev.trimEnd() + ' ' : '') + t;
+}
 
 function scopeLabel(scope: string, company: string) {
   if (scope === 'reported') return 'Reported by candidates';
@@ -91,6 +97,10 @@ export default function Practice({ questions, role, company, background, onExit 
       ...prev,
       [id]: fb.error ? { text: answer, error: fb.error } : { text: answer, fb }
     }));
+  }
+
+  function setFollowText(id: string, update: (prev: string) => string) {
+    setFollow(prev => ({ ...prev, [id]: { ...prev[id], text: update(prev[id]?.text ?? '') } }));
   }
 
   function next() {
@@ -193,11 +203,14 @@ export default function Practice({ questions, role, company, background, onExit 
 
       {answering ? (
         <div className="mt-6">
-          {retrying && last && (
-            <p className="text-sm text-gray-600 mb-2">Edit your answer using the feedback, then submit again.</p>
-          )}
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-gray-600">
+              {retrying && last ? 'Edit your answer using the feedback, then submit again.' : 'Type or speak your answer.'}
+            </span>
+            <MicButton onText={t => setText(prev => appendText(prev, t))} />
+          </div>
           <textarea rows={7} value={text} onChange={e => setText(e.target.value)} maxLength={3000}
-            placeholder="Type your answer the way you'd say it in the interview."
+            placeholder="Answer the way you'd say it in the interview."
             className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-300 rounded-md focus:outline-none focus:border-[#001489]" />
           <div className="flex items-center justify-between mt-2">
             <span className={`text-sm ${text.trim().length < MIN ? 'text-gray-400' : 'text-gray-500'}`}>
@@ -245,9 +258,12 @@ export default function Practice({ questions, role, company, background, onExit 
               <div className="text-[17px] text-gray-900 mt-1">{last.fb.follow_up}</div>
               {!fu.fb ? (
                 <>
-                  <p className="text-sm text-gray-600 mt-1">Optional. Real interviewers dig into your answers. This doesn&apos;t change your score.</p>
+                  <div className="flex items-center justify-between mt-1">
+                    <p className="text-sm text-gray-600">Optional. Real interviewers dig into your answers. This doesn&apos;t change your score.</p>
+                    <MicButton onText={t => setFollowText(q.id, prev => appendText(prev, t))} />
+                  </div>
                   <textarea rows={3} value={fu.text} maxLength={2000}
-                    onChange={e => setFollow(prev => ({ ...prev, [q.id]: { ...prev[q.id], text: e.target.value } }))}
+                    onChange={e => setFollowText(q.id, () => e.target.value)}
                     placeholder="Answer the follow-up…"
                     className="w-full mt-3 px-4 py-3 text-base bg-white border-[1.5px] border-blue-200 rounded-md focus:outline-none focus:border-[#001489]" />
                   <div className="flex justify-end mt-2">
