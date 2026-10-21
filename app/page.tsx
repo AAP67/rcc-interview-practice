@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import Practice, { type PracticeQuestion } from '@/components/Practice';
 
 type Question = { text: string; category: string; scope: 'reported' | 'company_info' | 'role'; source_title: string | null; source_url: string | null };
 type Research = {
@@ -27,6 +28,12 @@ export default function Setup() {
   const [researching, setResearching] = useState(false);
   const [research, setResearch] = useState<Research | null>(null);
 
+  const [building, setBuilding] = useState(false);
+  const [buildError, setBuildError] = useState('');
+  const [practice, setPractice] = useState<PracticeQuestion[] | null>(null);
+
+  const background = mode === 'describe' ? describe : summary;
+
   async function upload(file: File) {
     setUploading(true);
     setResumeError('');
@@ -48,6 +55,7 @@ export default function Setup() {
     if (!role.trim()) return;
     setResearching(true);
     setResearch(null);
+    setBuildError('');
     try {
       const res = await fetch('/api/research', {
         method: 'POST',
@@ -61,19 +69,54 @@ export default function Setup() {
     setResearching(false);
   }
 
+  async function startPractice() {
+    setBuilding(true);
+    setBuildError('');
+    try {
+      const res = await fetch('/api/questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role, company, posting, background, research })
+      });
+      const json = await res.json();
+      if (json.error) setBuildError(json.error);
+      else {
+        setPractice(json.questions);
+        window.scrollTo({ top: 0 });
+      }
+    } catch {
+      setBuildError('Building your questions took too long. Please try again.');
+    }
+    setBuilding(false);
+  }
+
   const field = 'w-full px-4 py-3 text-base text-gray-900 bg-white border-[1.5px] border-gray-300 rounded-md focus:outline-none focus:border-[#001489]';
   const label = 'block text-sm font-semibold text-gray-900 mb-1.5';
   const badge = 'px-2 py-0.5 text-xs font-semibold rounded border';
 
+  const header = (
+    <header className="border-b-[3px] border-[#F15A22]">
+      <div className="max-w-[860px] mx-auto px-6 h-[76px] flex items-center gap-4">
+        <div className="text-lg font-bold text-[#001489]">Randolph Community College</div>
+        <div className="w-px h-7 bg-gray-300" />
+        <div className="text-lg font-semibold text-gray-700">Interview Practice</div>
+      </div>
+    </header>
+  );
+
+  if (practice) {
+    return (
+      <div className="min-h-screen bg-white text-gray-900">
+        {header}
+        <Practice questions={practice} role={role} company={company} background={background}
+          onExit={() => { setPractice(null); window.scrollTo({ top: 0 }); }} />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-white text-gray-900">
-      <header className="border-b-[3px] border-[#F15A22]">
-        <div className="max-w-[860px] mx-auto px-6 h-[76px] flex items-center gap-4">
-          <div className="text-lg font-bold text-[#001489]">Randolph Community College</div>
-          <div className="w-px h-7 bg-gray-300" />
-          <div className="text-lg font-semibold text-gray-700">Interview Practice</div>
-        </div>
-      </header>
+      {header}
 
       <main className="max-w-[860px] mx-auto px-6 py-10">
         <h1 className="text-[36px] font-medium tracking-tight leading-tight">Practice for a real job interview</h1>
@@ -175,7 +218,7 @@ export default function Setup() {
             )}
 
             <div className="mt-6 text-[15px] font-semibold">
-              Practice questions for this {research.company_specific_found ? 'company and role' : 'role'}
+              Questions found for this {research.company_specific_found ? 'company and role' : 'role'}
             </div>
             {!research.company_specific_found && research.company && (
               <p className="text-sm text-gray-500 mt-0.5">We didn&apos;t find anything specific to {research.company}, so these are for the role in general.</p>
@@ -206,6 +249,20 @@ export default function Setup() {
                 </li>
               ))}
             </ul>
+
+            {/* 4. Start */}
+            <div className="mt-8 p-6 bg-[#001489] rounded-xl text-white">
+              <div className="text-lg font-semibold">Ready to practice?</div>
+              <p className="text-[15px] text-blue-100 mt-1">
+                We&apos;ll pick 5 questions for you from this research, your background, and the posting.
+                You answer each one, get feedback, and can try once more.
+              </p>
+              <button onClick={startPractice} disabled={building}
+                className="mt-4 h-11 px-6 font-semibold text-[#001489] bg-white rounded-md disabled:opacity-60 hover:bg-blue-50">
+                {building ? 'Building your questions…' : 'Start practice'}
+              </button>
+              {buildError && <p className="text-sm text-red-200 mt-3">{buildError}</p>}
+            </div>
           </section>
         )}
       </main>
