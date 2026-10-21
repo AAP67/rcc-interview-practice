@@ -3,6 +3,7 @@
 // reported     = the source itself lists this question as asked (candidate reports, company lists)
 // company_info = written by the AI from the employer's own hiring/job info
 // role         = common question for this kind of job
+export const maxDuration = 60;
 type Scope = 'reported' | 'company_info' | 'role';
 
 type Question = {

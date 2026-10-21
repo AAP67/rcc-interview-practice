@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
+export const maxDuration = 60;
 type ResearchQ = { text: string; category: string; scope: string; source_url: string | null };
 
 const SYSTEM = `You prepare a 5-question practice interview for a Randolph Community College student.
