@@ -14,6 +14,7 @@ type Feedback = {
 };
 
 type Attempt = { answer: string; fb: Feedback };
+type FollowUp = { text: string; fb?: Feedback; loading?: boolean; error?: string };
 
 const CHECK_LABELS: Record<string, string> = {
   on_topic: 'On topic', specific: 'Specific details', example: 'Real example', judgment: 'Good judgment'
@@ -24,6 +25,7 @@ const CHECK_STYLE: Record<string, string> = {
   missing: 'bg-gray-50 text-gray-500 border-gray-200'
 };
 const CHECK_WORD: Record<string, string> = { met: '✓', partly: '½', missing: '✗' };
+const MIN = 40;
 
 function scopeLabel(scope: string, company: string) {
   if (scope === 'reported') return 'Reported by candidates';
@@ -37,6 +39,7 @@ export default function Practice({ questions, role, company, background, onExit 
 }) {
   const [idx, setIdx] = useState(0);
   const [attempts, setAttempts] = useState<Record<string, Attempt[]>>({});
+  const [follow, setFollow] = useState<Record<string, FollowUp>>({});
   const [text, setText] = useState('');
   const [retrying, setRetrying] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -47,29 +50,47 @@ export default function Practice({ questions, role, company, background, onExit 
   const tries = attempts[q?.id] ?? [];
   const last = tries[tries.length - 1];
   const answering = tries.length === 0 || retrying;
+  const fu: FollowUp = follow[q?.id] ?? { text: '' };
 
-  async function submit() {
-    setLoading(true);
-    setError('');
+  async function evaluate(body: object): Promise<Feedback> {
     try {
       const res = await fetch('/api/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          role, company, background, question: q, answer: text,
-          attempt: tries.length + 1, previous_answer: tries[0]?.answer ?? ''
-        })
+        body: JSON.stringify({ role, company, background, ...body })
       });
-      const fb: Feedback = await res.json();
-      if (fb.error) setError(fb.error);
-      else {
-        setAttempts({ ...attempts, [q.id]: [...tries, { answer: text, fb }] });
-        setRetrying(false);
-      }
+      return await res.json();
     } catch {
-      setError('The coach took too long. Please try again.');
+      return { error: 'The coach took too long. Please try again.' } as Feedback;
+    }
+  }
+
+  async function submit() {
+    setLoading(true);
+    setError('');
+    const fb = await evaluate({
+      question: q, answer: text, attempt: tries.length + 1, previous_answer: tries[0]?.answer ?? ''
+    });
+    if (fb.error) setError(fb.error);
+    else {
+      setAttempts(prev => ({ ...prev, [q.id]: [...(prev[q.id] ?? []), { answer: text, fb }] }));
+      setFollow(prev => ({ ...prev, [q.id]: { text: '' } })); // new feedback brings a new follow-up
+      setRetrying(false);
     }
     setLoading(false);
+  }
+
+  async function submitFollow() {
+    const id = q.id;
+    const answer = fu.text;
+    setFollow(prev => ({ ...prev, [id]: { ...prev[id], text: answer, loading: true, error: '' } }));
+    const fb = await evaluate({
+      question: { ...q, text: last.fb.follow_up, category: 'Follow-up' }, answer, attempt: 1
+    });
+    setFollow(prev => ({
+      ...prev,
+      [id]: fb.error ? { text: answer, error: fb.error } : { text: answer, fb }
+    }));
   }
 
   function next() {
@@ -82,6 +103,7 @@ export default function Practice({ questions, role, company, background, onExit 
 
   function restart() {
     setAttempts({});
+    setFollow({});
     setIdx(0);
     setText('');
     setRetrying(false);
@@ -99,7 +121,6 @@ export default function Practice({ questions, role, company, background, onExit 
     const answered = rows.filter(r => r.best !== null);
     const avg = answered.length ? answered.reduce((s, r) => s + (r.best ?? 0), 0) / answered.length : 0;
 
-    // which check was missed most often (on each question's best attempt)
     const misses: Record<string, number> = { on_topic: 0, specific: 0, example: 0, judgment: 0 };
     for (const qq of questions) {
       const t = attempts[qq.id] ?? [];
@@ -179,10 +200,10 @@ export default function Practice({ questions, role, company, background, onExit 
             placeholder="Type your answer the way you'd say it in the interview."
             className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-300 rounded-md focus:outline-none focus:border-[#001489]" />
           <div className="flex items-center justify-between mt-2">
-            <span className={`text-sm ${text.trim().length < 40 ? 'text-gray-400' : 'text-gray-500'}`}>
-              {text.trim().length < 40 ? 'Write at least two or three sentences.' : `${text.trim().length} characters`}
+            <span className={`text-sm ${text.trim().length < MIN ? 'text-gray-400' : 'text-gray-500'}`}>
+              {text.trim().length < MIN ? 'Write at least two or three sentences.' : `${text.trim().length} characters`}
             </span>
-            <button onClick={submit} disabled={loading || text.trim().length < 40}
+            <button onClick={submit} disabled={loading || text.trim().length < MIN}
               className="h-11 px-6 font-semibold text-white bg-[#001489] rounded-md disabled:opacity-40 hover:bg-[#000E5C]">
               {loading ? 'Getting feedback…' : 'Get feedback'}
             </button>
@@ -217,6 +238,35 @@ export default function Practice({ questions, role, company, background, onExit 
               {tries.length === 1 && <p><span className="font-semibold text-[#001489]">Think about: </span>{last.fb.hint}</p>}
             </div>
           </div>
+
+          {last.fb.follow_up && (
+            <div className="mt-5 p-5 border border-blue-200 bg-blue-50 rounded-lg">
+              <div className="text-xs font-bold text-[#001489] uppercase tracking-wider">The interviewer follows up</div>
+              <div className="text-[17px] text-gray-900 mt-1">{last.fb.follow_up}</div>
+              {!fu.fb ? (
+                <>
+                  <p className="text-sm text-gray-600 mt-1">Optional. Real interviewers dig into your answers. This doesn&apos;t change your score.</p>
+                  <textarea rows={3} value={fu.text} maxLength={2000}
+                    onChange={e => setFollow(prev => ({ ...prev, [q.id]: { ...prev[q.id], text: e.target.value } }))}
+                    placeholder="Answer the follow-up…"
+                    className="w-full mt-3 px-4 py-3 text-base bg-white border-[1.5px] border-blue-200 rounded-md focus:outline-none focus:border-[#001489]" />
+                  <div className="flex justify-end mt-2">
+                    <button onClick={submitFollow} disabled={fu.loading || fu.text.trim().length < MIN}
+                      className="h-10 px-5 text-sm font-semibold text-white bg-[#001489] rounded-md disabled:opacity-40 hover:bg-[#000E5C]">
+                      {fu.loading ? 'Checking…' : 'Answer follow-up'}
+                    </button>
+                  </div>
+                  {fu.error && <p className="text-sm text-red-700 mt-2">{fu.error}</p>}
+                </>
+              ) : (
+                <div className="mt-3 p-4 bg-white border border-blue-100 rounded-md text-[15px] space-y-1.5">
+                  <div className="text-sm text-gray-500">Your follow-up answer: {fu.fb.score}/8</div>
+                  <p><span className="font-semibold text-green-800">What worked: </span>{fu.fb.worked}</p>
+                  <p><span className="font-semibold text-[#B14A00]">To improve: </span>{fu.fb.improve}</p>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex gap-3 mt-5">
             {tries.length === 1 && (
